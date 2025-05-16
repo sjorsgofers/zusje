@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Restaurant Tafels</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 p-4">
+  <div class="max-w-3xl mx-auto">
+    <h1 class="text-2xl font-bold mb-4">Tafels</h1>
+    <div class="flex space-x-2 mb-4">
+      <button class="tab px-4 py-2 rounded bg-blue-500 text-white" data-zone="Beneden">Beneden</button>
+      <button class="tab px-4 py-2 rounded bg-gray-300" data-zone="Boven">Boven</button>
+      <button class="tab px-4 py-2 rounded bg-gray-300" data-zone="Terras">Terras</button>
+    </div>
+
+    <div id="table-grid" class="grid grid-cols-5 gap-2"></div>
+  </div>
+
+  <script>
+    const supabase = supabase.createClient(
+      "https://YOUR-PROJECT.supabase.co", // vervang dit met jouw Supabase project-URL
+      "public-anon-key" // vervang dit met jouw Supabase publieke sleutel
+    );
+
+    const tableGrid = document.getElementById("table-grid");
+    const tabs = document.querySelectorAll(".tab");
+
+    let currentZone = "Beneden";
+    let allTables = [];
+
+    const zoneTableMap = {
+      Beneden: Array.from({ length: 13 }, (_, i) => i + 1),
+      Boven: Array.from({ length: 39 }, (_, i) => i + 20),
+      Terras: Array.from({ length: 17 }, (_, i) => i + 70)
+    };
+
+    function renderTables() {
+      tableGrid.innerHTML = "";
+      const numbers = zoneTableMap[currentZone];
+      numbers.forEach((number) => {
+        const table = allTables.find(t => t.zone === currentZone && t.number === number);
+        const isActive = table?.is_active;
+        const btn = document.createElement("button");
+        btn.textContent = number;
+        btn.className = `p-4 rounded text-white font-bold ${isActive ? "bg-green-500" : "bg-gray-400"}`;
+        btn.onclick = () => toggleTable(currentZone, number, !isActive);
+        tableGrid.appendChild(btn);
+      });
+    }
+
+    async function toggleTable(zone, number, newState) {
+      const { data } = await supabase
+        .from("tables")
+        .upsert([{ zone, number, is_active: newState }]);
+    }
+
+    function setActiveTab(zone) {
+      currentZone = zone;
+      tabs.forEach(tab => {
+        if (tab.dataset.zone === zone) {
+          tab.classList.add("bg-blue-500", "text-white");
+          tab.classList.remove("bg-gray-300");
+        } else {
+          tab.classList.remove("bg-blue-500", "text-white");
+          tab.classList.add("bg-gray-300");
+        }
+      });
+      renderTables();
+    }
+
+    tabs.forEach(tab => {
+      tab.addEventListener("click", () => {
+        setActiveTab(tab.dataset.zone);
+      });
+    });
+
+    async function loadTables() {
+      const { data } = await supabase.from("tables").select("*");
+      allTables = data;
+      renderTables();
+    }
+
+    supabase
+      .channel("table_sync")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "tables" },
+        (payload) => {
+          const idx = allTables.findIndex(
+            t => t.zone === payload.new.zone && t.number === payload.new.number
+          );
+          if (idx > -1) {
+            allTables[idx] = payload.new;
+          } else {
+            allTables.push(payload.new);
+          }
+          renderTables();
+        }
+      )
+      .subscribe();
+
+    // Initial load
+    loadTables();
+  </script>
+</body>
+</html>
