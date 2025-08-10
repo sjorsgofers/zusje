@@ -1,109 +1,545 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="nl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Restaurant Tafels</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-100 text-gray-800 p-4">
-  <div class="max-w-3xl mx-auto">
-    <h1 class="text-2xl font-bold mb-4">Tafels</h1>
-    <div class="flex space-x-2 mb-4">
-      <button class="tab px-4 py-2 rounded bg-blue-500 text-white" data-zone="Beneden">Beneden</button>
-      <button class="tab px-4 py-2 rounded bg-gray-300" data-zone="Boven">Boven</button>
-      <button class="tab px-4 py-2 rounded bg-gray-300" data-zone="Terras">Terras</button>
-    </div>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Tafels — Beneden + Boven</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --text:#111827; --muted:#6b7280;
+    --nieuw:#ef4444; --drank:#f59e0b; --run:#10b981; --koffie:#7c3aed; --rekening:#0ea5e9;
+    --soft:#f1f5f9; --border:#e5e7eb; --label:#e5e7eb;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:#111827;
+    font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    display:grid; grid-template-rows:auto 1fr;
+  }
+  header{
+    background:var(--card); border-bottom:1px solid var(--border);
+    position:sticky; top:0; z-index:10; padding:14px 16px; display:flex; align-items:center; gap:12px;
+  }
+  .title{font-weight:800; flex:1}
+  main{padding:14px}
 
-    <div id="table-grid" class="grid grid-cols-5 gap-2"></div>
+  .toolbar{ display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; align-items:center; }
+  .btn, .help-btn{
+    appearance:none; border:1px solid var(--border); background:#fff; color:#111827;
+    padding:8px 12px; border-radius:10px; cursor:pointer; font-weight:600;
+  }
+  .help-btn{ border:2px solid var(--nieuw); color:var(--nieuw); font-weight:900; letter-spacing:1px; }
+
+  .legend{display:flex; gap:14px; flex-wrap:wrap; align-items:center; font-size:14px; color:#6b7280}
+  .dot{width:12px; height:12px; border-radius:3px; display:inline-block; margin-right:6px}
+  .dot.nieuw{background:var(--nieuw)}
+  .dot.drank{background:var(--drank)}
+  .dot.run{background:var(--run)}
+  .dot.koffie{background:var(--koffie)}
+  .dot.rekening{background:var(--rekening)}
+  .dot.leeg{background:var(--soft); border:1px solid var(--border)}
+
+  .grid{display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(86px,1fr));}
+
+  /* ✅ Sectietitels duidelijk en responsief */
+  .group-label{
+    grid-column:1 / -1;
+    background:var(--label);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:8px 12px;
+    font-weight:900;
+    letter-spacing:.3px;
+    font-size:clamp(14px, 2.2vw, 18px);
+    color:#111827;
+  }
+
+  .table{
+    user-select:none; display:grid; grid-template-rows:auto auto 1fr; gap:6px; place-items:center;
+    padding:10px 10px 28px; /* ✅ extra ruimte onderaan voor timer */
+    aspect-ratio:1/1; border-radius:12px;
+    background:var(--card); border:1px solid var(--border);
+    font-weight:800; font-size:18px; cursor:pointer; position:relative;
+  }
+  .num{font-size:18px; line-height:1; color:var(--text);}
+  .num.num-flagged{ color: var(--nieuw); } /* blijvende nummerkleur na 'Nieuw' */
+
+  .table[data-status]{color:#fff; border-color:transparent;}
+  .table[data-status] .num{ color:#fff !important; }
+  .table[data-status] .note{color:#fff}
+  .table.status-nieuw{ background:var(--nieuw);}
+  .table.status-drank{ background:var(--drank);}
+  .table.status-run{ background:var(--run);}
+  .table.status-koffie{ background:var(--koffie);}
+  .table.status-rekening{ background:var(--rekening);}
+
+  /* ✅ Timer gecentreerd onderaan, niet door notities heen */
+  .timer{
+    position:absolute; bottom:6px; left:50%; transform:translateX(-50%);
+    font-size:12px; font-weight:700; color:#475569; pointer-events:none;
+  }
+  .table[data-status] .timer{ color:#fff; }
+
+  .note{
+    font-size:12px; font-weight:600; color:#111827; text-align:center;
+    line-height:1.2; max-width:100%; max-height:2.4em; overflow:hidden; text-overflow:ellipsis;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  }
+
+  /* ✅ Popup volledig ondoorzichtig (geen doorschijn) */
+  .overlay{
+    position:fixed; inset:0;
+    background:rgba(0,0,0,0.6); /* alleen de achtergrond dimt */
+    display:none; align-items:center; justify-content:center; padding:16px; z-index:2147483647;
+    backdrop-filter:none;
+  }
+  .overlay.open{display:flex;}
+  .modal{
+    width:100%; max-width:480px;
+    background:#ffffff; /* solide wit */
+    opacity:1; /* expliciet */
+    border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.35);
+    border:1px solid var(--border);
+  }
+  /* extra safeguard voor iOS/rare browsers */
+  .modal, .modal *{ -webkit-backdrop-filter:none; backdrop-filter:none; }
+
+  .modal-header{padding:14px 16px; border-bottom:1px solid var(--border); font-weight:800; color:#111827; background:#fff}
+  .modal-grid{padding:14px; display:grid; gap:10px; grid-template-columns:repeat(2,1fr); background:#fff}
+  .choice{
+    display:flex; align-items:center; gap:10px;
+    border-radius:10px; padding:12px; cursor:pointer;
+    border:1px solid var(--border); background:#fff; font-weight:700; justify-content:center; color:#111827;
+  }
+  .choice .swatch{width:16px; height:16px; border-radius:4px}
+  .swatch.nieuw{background:var(--nieuw)}
+  .swatch.drank{background:var(--drank)}
+  .swatch.run{background:var(--run)}
+  .swatch.koffie{background:var(--koffie)}
+  .swatch.rekening{background:var(--rekening)}
+  .choice.reset{border-color:#9ca3af; color:#374151}
+
+  .modal-footer{padding:12px 14px; border-top:1px solid var(--border);
+    display:flex; justify-content:space-between; align-items:center; gap:10px; background:#fff}
+  .link{background:#fff; border:1px solid var(--border); padding:8px 12px; border-radius:10px; cursor:pointer; font-weight:700; color:#111827}
+  .link.primary{color:#fff; background:#2563eb; border-color:#2563eb}
+
+  .note-editor{display:none; padding:14px; border-top:1px solid var(--border); background:#fff}
+  .note-editor.open{display:block}
+  .note-editor textarea{
+    width:100%; min-height:80px; border:1px solid var(--border); border-radius:10px; padding:10px;
+    font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; resize:vertical; background:#fff; color:#111827;
+  }
+  .note-actions{margin-top:10px; display:flex; gap:8px; justify-content:flex-end}
+
+  /* HELP popups en ALERT blijven gelijk */
+  .help-overlay{position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; padding:16px; z-index:2147483647;}
+  .help-overlay.open{display:flex;}
+  .help-modal{width:100%; max-width:420px; background:#fff; border:1px solid var(--border); border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.25)}
+  .help-header{padding:14px 16px; font-weight:900; color:#ef4444; border-bottom:1px solid var(--border)}
+  .help-grid{padding:14px; display:grid; gap:10px}
+  .help-opt{padding:14px; font-weight:800; border:2px solid #ef4444; color:#ef4444; background:#fff; border-radius:12px; cursor:pointer; text-align:center}
+
+  .alert-screen{
+    position:fixed; inset:0; background:#ef4444; color:#fff; display:none; align-items:center; justify-content:center; flex-direction:column;
+    z-index:2147483647; text-align:center; padding:24px;
+  }
+  .alert-screen.show{display:flex;}
+  .alert-title{font-size:16vw; line-height:0.9; font-weight:1000; letter-spacing:2px;}
+  .alert-sub{font-size:8vw; font-weight:800; margin-top:12px;}
+  @media (min-width: 768px){
+    .alert-title{font-size:160px}
+    .alert-sub{font-size:72px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="title">Tafels — Beneden + Boven</div>
+</header>
+<main>
+  <div class="toolbar">
+    <button class="btn" id="resetBeneden">Reset Beneden</button>
+    <button class="btn" id="resetBoven">Reset Boven</button>
+    <button class="btn" id="resetAll">Reset alles</button>
+    <button id="helpBtn" class="help-btn">HELP</button>
   </div>
 
-  <script>
-    const supabase = supabase.createClient(
-      "https://YOUR-PROJECT.supabase.co", // vervang dit met jouw Supabase project-URL
-      "public-anon-key" // vervang dit met jouw Supabase publieke sleutel
-    );
+  <div class="legend">
+    <span><span class="dot leeg"></span>Leeg</span>
+    <span><span class="dot nieuw"></span>Nieuw</span>
+    <span><span class="dot drank"></span>Drank</span>
+    <span><span class="dot run"></span>Run</span>
+    <span><span class="dot koffie"></span>Koffie</span>
+    <span><span class="dot rekening"></span>Rekening</span>
+  </div>
 
-    const tableGrid = document.getElementById("table-grid");
-    const tabs = document.querySelectorAll(".tab");
+  <div id="grid" class="grid"></div>
+  <div class="subtle">Klik op lege tafel voor status; klik op gekleurde tafel om te legen. Notities blijven staan.</div>
+</main>
 
-    let currentZone = "Beneden";
-    let allTables = [];
+<!-- Status/Notitie Modal -->
+<div id="overlay" class="overlay" aria-modal="true" role="dialog">
+  <div class="modal">
+    <div class="modal-header">Kies status</div>
+    <div class="modal-grid" id="statusChoices">
+      <button class="choice" data-choice="nieuw"><span class="swatch nieuw"></span>Nieuw</button>
+      <button class="choice" data-choice="drank"><span class="swatch drank"></span>Drank</button>
+      <button class="choice" data-choice="run"><span class="swatch run"></span>Run</button>
+      <button class="choice" data-choice="koffie"><span class="swatch koffie"></span>Koffie</button>
+      <button class="choice" data-choice="rekening"><span class="swatch rekening"></span>Rekening</button>
+      <button class="choice reset" data-choice="reset">Reset (tafelnummer)</button>
+    </div>
 
-    const zoneTableMap = {
-      Beneden: Array.from({ length: 13 }, (_, i) => i + 1),
-      Boven: Array.from({ length: 39 }, (_, i) => i + 20),
-      Terras: Array.from({ length: 17 }, (_, i) => i + 70)
-    };
+    <div class="note-editor" id="noteEditor">
+      <textarea id="noteInput" placeholder="Notitie voor deze tafel..."></textarea>
+      <div class="note-actions">
+        <button class="link danger" id="deleteNote">Verwijder notitie</button>
+        <button class="link" id="cancelNote">Annuleren</button>
+        <button class="link primary" id="saveNote">Opslaan</button>
+      </div>
+    </div>
 
-    function renderTables() {
-      tableGrid.innerHTML = "";
-      const numbers = zoneTableMap[currentZone];
-      numbers.forEach((number) => {
-        const table = allTables.find(t => t.zone === currentZone && t.number === number);
-        const isActive = table?.is_active;
-        const btn = document.createElement("button");
-        btn.textContent = number;
-        btn.className = `p-4 rounded text-white font-bold ${isActive ? "bg-green-500" : "bg-gray-400"}`;
-        btn.onclick = () => toggleTable(currentZone, number, !isActive);
-        tableGrid.appendChild(btn);
-      });
-    }
+    <div class="modal-footer">
+      <button class="link" id="cancelModal">Sluiten</button>
+      <button class="link primary" id="openNote">Notitie toevoegen/bewerken</button>
+    </div>
+  </div>
+</div>
 
-    async function toggleTable(zone, number, newState) {
-      const { data } = await supabase
-        .from("tables")
-        .upsert([{ zone, number, is_active: newState }]);
-    }
+<!-- HELP Modal -->
+<div id="helpOverlay" class="help-overlay" aria-modal="true" role="dialog">
+  <div class="help-modal">
+    <div class="help-header">KIES HULPLOCATIE</div>
+    <div class="help-grid">
+      <button class="help-opt" data-help="Bar Beneden">Bar Beneden</button>
+      <button class="help-opt" data-help="Bar Boven">Bar Boven</button>
+      <button class="help-opt" data-help="Run">Run</button>
+      <button class="help-opt" id="helpCancel">Annuleren</button>
+    </div>
+  </div>
+</div>
 
-    function setActiveTab(zone) {
-      currentZone = zone;
-      tabs.forEach(tab => {
-        if (tab.dataset.zone === zone) {
-          tab.classList.add("bg-blue-500", "text-white");
-          tab.classList.remove("bg-gray-300");
-        } else {
-          tab.classList.remove("bg-blue-500", "text-white");
-          tab.classList.add("bg-gray-300");
+<!-- ALERT Screen -->
+<div id="alertScreen" class="alert-screen" aria-live="assertive" aria-atomic="true">
+  <div class="alert-title">ALERT</div>
+  <div id="alertSub" class="alert-sub"></div>
+</div>
+
+<!-- Supabase JS -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ====== Supabase ====== */
+const SUPABASE_URL  = "https://xiwdbvxnjcrdwjhmpjnf.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhpd2RidnhuamNyZHdqaG1wam5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ2NjE1NzAsImV4cCI6MjA3MDIzNzU3MH0.d14QNY5Pof9j3zmlbs-5gBTs25s6xo_XYhyVbWE2P1k";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+/* ====== Ranges & volgorde (Beneden + Boven) ====== */
+const RANGES_BENEDEN = [[1,13]];
+const RANGES_BOVEN   = [[20,58]];
+const DISPLAY_GROUPS = [
+  { label:'Beneden', ranges:RANGES_BENEDEN, zone:'bt' },
+  { label:'Boven',   ranges:RANGES_BOVEN,   zone:'boven' }
+];
+function expandRanges(r){ const out=[]; for(const [a,b] of r){ for(let i=a;i<=b;i++) out.push(i);} return out; }
+const ALL_NUMBERS = DISPLAY_GROUPS.flatMap(g => expandRanges(g.ranges));
+function zoneFor(n){
+  for(const [a,b] of RANGES_BENEDEN) if(n>=a && n<=b) return 'bt';
+  for(const [a,b] of RANGES_BOVEN)   if(n>=a && n<=b) return 'boven';
+  return 'bt';
+}
+
+/* ====== Elements ====== */
+const gridEl=document.getElementById('grid');
+const overlay=document.getElementById('overlay');
+const cancelBtn=document.getElementById('cancelModal');
+const openNoteBtn=document.getElementById('openNote');
+
+const statusChoices=document.getElementById('statusChoices');
+const noteEditor=document.getElementById('noteEditor');
+const noteInput=document.getElementById('noteInput');
+const saveNoteBtn=document.getElementById('saveNote');
+const deleteNoteBtn=document.getElementById('deleteNote');
+const cancelNoteBtn=document.getElementById('cancelNote');
+const choiceBtns=overlay.querySelectorAll('.choice');
+
+const resetBenedenBtn=document.getElementById('resetBeneden');
+const resetBovenBtn=document.getElementById('resetBoven');
+const resetAllBtn=document.getElementById('resetAll');
+
+const helpBtn=document.getElementById('helpBtn');
+const helpOverlay=document.getElementById('helpOverlay');
+const helpOpts=helpOverlay.querySelectorAll('.help-opt[data-help]');
+const helpCancel=document.getElementById('helpCancel');
+const alertScreen=document.getElementById('alertScreen');
+const alertSub=document.getElementById('alertSub');
+
+/* ====== State ====== */
+const STATUS_CLASSES={ nieuw:"status-nieuw", drank:"status-drank", run:"status-run", koffie:"status-koffie", rekening:"status-rekening" };
+let rows = new Map(); // key `${zone}-${n}` -> row
+let timerInterval=null;
+let pendingTableEl=null;
+let tableChannel=null;
+let helpChannel=null;
+let lastRealtimeAt=0;
+let alertTimeout=null;
+
+/* ====== Helpers ====== */
+function keyOf(zone, n){ return `${zone}-${n}`; }
+function applyStatusClass(cell,status){
+  cell.classList.remove(...Object.values(STATUS_CLASSES));
+  if(status){ cell.classList.add(STATUS_CLASSES[status]); cell.setAttribute('data-status',status); }
+  else { cell.removeAttribute('data-status'); }
+}
+function ensureChild(cell, selector, className){
+  let el = cell.querySelector(selector);
+  if(!el){ el = document.createElement('div'); el.className = className; cell.appendChild(el); }
+  return el;
+}
+function setNote(cell, text){ ensureChild(cell,'.note','note').textContent = text || ''; }
+function setTimer(cell, text){ ensureChild(cell,'.timer','timer').textContent = text || ''; }
+function setNumFlag(cell, flagged){
+  const numEl = cell.querySelector('.num') || ensureChild(cell,'.num','num');
+  numEl.classList.toggle('num-flagged', !!flagged);
+}
+function fmtElapsed(ms){
+  if(ms<0||!isFinite(ms))return '';
+  const total = Math.floor(ms/1000), s=total%60, m=Math.floor(total/60)%60, h=Math.floor(total/3600);
+  const pad=n=>n<10?'0'+n:''+n;
+  return h?`${h}:${pad(m)}:${pad(s)}`:`${m}:${pad(s)}`;
+}
+
+/* ====== Data IO ====== */
+async function fetchAll(){
+  const { data, error } = await sb.from('tables_status').select('*');
+  if(error){ console.error('fetchAll error', error); return; }
+  rows = new Map(data.map(r=>[keyOf(r.zone,r.table_num), r]));
+}
+async function upsertByNumber(n, patch){
+  const zone = zoneFor(n);
+  const prev = rows.get(keyOf(zone,n)) || { zone, table_num:n };
+  const payload = { status:null, status_started:null, note:null, num_marked:false, ...prev, ...patch, updated_at:new Date().toISOString() };
+  const { data, error } = await sb.from('tables_status').upsert(payload).select().single();
+  if(error){ console.error('upsert error', error); return prev; }
+  rows.set(keyOf(zone,n), data);
+  return data;
+}
+
+/* ====== Render (met sectietitels) ====== */
+function render(){
+  if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+  gridEl.innerHTML='';
+
+  for(const group of DISPLAY_GROUPS){
+    const label = document.createElement('div');
+    label.className = 'group-label';
+    label.textContent = group.label;
+    gridEl.appendChild(label);
+
+    const nums = expandRanges(group.ranges);
+    for(const n of nums){
+      const zone = zoneFor(n);
+      const r = rows.get(keyOf(zone,n)) || {};
+
+      const cell=document.createElement('button');
+      cell.className='table'; cell.type='button'; cell.dataset.num=n;
+
+      const numEl=document.createElement('div'); numEl.className='num'; numEl.textContent=n; cell.appendChild(numEl);
+      const timerEl=document.createElement('div'); timerEl.className='timer'; timerEl.textContent=''; cell.appendChild(timerEl);
+      const noteEl=document.createElement('div'); noteEl.className='note'; noteEl.textContent=''; cell.appendChild(noteEl);
+
+      applyStatusClass(cell, r.status || null);
+      setNote(cell, r.note || '');
+      setNumFlag(cell, !!r.num_marked);
+
+      cell.addEventListener('click', async ()=>{
+        const cur = rows.get(keyOf(zone,n)) || {};
+        const hasStatus = !!cur.status || cell.hasAttribute('data-status');
+        if(hasStatus){
+          const keepFlag = !!cur.num_marked;
+          await upsertByNumber(n, { status:null, status_started:null, num_marked: keepFlag });
+          applyStatusClass(cell, null);
+          setTimer(cell,'');
+          setNumFlag(cell, keepFlag);
+          return;
         }
+        pendingTableEl = cell;
+        noteInput.value = cur.note || '';
+        showChoicesPane();
+        overlay.classList.add('open');
       });
-      renderTables();
-    }
 
-    tabs.forEach(tab => {
-      tab.addEventListener("click", () => {
-        setActiveTab(tab.dataset.zone);
-      });
+      gridEl.appendChild(cell);
+    }
+  }
+
+  function tick(){
+    const now = Date.now();
+    gridEl.querySelectorAll('.table').forEach(cell=>{
+      const n = Number(cell.dataset.num);
+      const z = zoneFor(n);
+      const r = rows.get(keyOf(z, n));
+      if(r && r.status && r.status_started){
+        setTimer(cell, fmtElapsed(now - Date.parse(r.status_started)));
+      } else {
+        setTimer(cell, '');
+      }
     });
+  }
+  tick();
+  timerInterval = setInterval(tick, 1000);
+}
 
-    async function loadTables() {
-      const { data } = await supabase.from("tables").select("*");
-      allTables = data;
-      renderTables();
+/* ====== Modal panes ====== */
+function showChoicesPane(){ statusChoices.style.display='grid'; noteEditor.classList.remove('open'); }
+function showNotePane(){ statusChoices.style.display='none'; noteEditor.classList.add('open'); }
+
+/* ====== Status + Reset ====== */
+choiceBtns.forEach(btn=>{
+  btn.addEventListener('click', async ()=>{
+    if(!pendingTableEl) return;
+    const choice = btn.dataset.choice;  // nieuw | drank | run | koffie | rekening | reset
+    const n = Number(pendingTableEl.dataset.num);
+
+    if(choice === 'reset'){
+      await upsertByNumber(n, { num_marked:false });
+      setNumFlag(pendingTableEl, false);
+      overlay.classList.remove('open'); pendingTableEl=null; showChoicesPane();
+      return;
     }
 
-    supabase
-      .channel("table_sync")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "tables" },
-        (payload) => {
-          const idx = allTables.findIndex(
-            t => t.zone === payload.new.zone && t.number === payload.new.number
-          );
-          if (idx > -1) {
-            allTables[idx] = payload.new;
-          } else {
-            allTables.push(payload.new);
-          }
-          renderTables();
-        }
-      )
-      .subscribe();
+    const patch = { status:choice, status_started:new Date().toISOString() };
+    if(choice === 'nieuw'){ patch.num_marked = true; } // blijvende nummerkleur
+    await upsertByNumber(n, patch);
+    applyStatusClass(pendingTableEl, choice);
+    if(choice === 'nieuw'){ setNumFlag(pendingTableEl, true); }
+    overlay.classList.remove('open'); pendingTableEl=null;
+  });
+});
 
-    // Initial load
-    loadTables();
-  </script>
+/* ====== Notities ====== */
+openNoteBtn.addEventListener('click',()=>{ if(pendingTableEl) showNotePane(); });
+saveNoteBtn.addEventListener('click', async ()=>{
+  if(!pendingTableEl) return;
+  const n = Number(pendingTableEl.dataset.num);
+  const text = noteInput.value.trim();
+  await upsertByNumber(n, { note: text || null });
+  const noteEl = pendingTableEl.querySelector('.note'); if(noteEl) noteEl.textContent = text;
+  overlay.classList.remove('open'); pendingTableEl=null; showChoicesPane();
+});
+deleteNoteBtn.addEventListener('click', async ()=>{
+  if(!pendingTableEl) return;
+  const n = Number(pendingTableEl.dataset.num);
+  await upsertByNumber(n, { note: null });
+  const noteEl = pendingTableEl.querySelector('.note'); if(noteEl) noteEl.textContent = '';
+  overlay.classList.remove('open'); pendingTableEl=null; showChoicesPane();
+});
+cancelNoteBtn.addEventListener('click',()=>{ showChoicesPane(); });
+
+/* ====== Overlay controls ====== */
+cancelBtn.addEventListener('click',()=>{ overlay.classList.remove('open'); pendingTableEl=null; showChoicesPane(); });
+overlay.addEventListener('click',e=>{ if(e.target===overlay){ overlay.classList.remove('open'); pendingTableEl=null; showChoicesPane(); }});
+
+/* ====== Resets ====== */
+function expand(r){ const out=[]; for(const [a,b] of r){ for(let i=a;i<=b;i++) out.push(i);} return out; }
+async function resetRange(ranges){
+  const nums = expand(ranges);
+  for(const n of nums){
+    const z = zoneFor(n);
+    const r = rows.get(keyOf(z,n));
+    if(!r) continue;
+    await upsertByNumber(n, { status:null, status_started:null });
+  }
+  render();
+}
+resetBenedenBtn.addEventListener('click', ()=>resetRange(RANGES_BENEDEN));
+resetBovenBtn.addEventListener('click',    ()=>resetRange(RANGES_BOVEN));
+resetAllBtn.addEventListener('click', async ()=>{ await resetRange([...RANGES_BENEDEN, ...RANGES_BOVEN]); });
+
+/* ====== Realtime tafels ====== */
+function subscribeRealtimeTables(){
+  if(tableChannel){ sb.removeChannel(tableChannel); }
+  tableChannel = sb.channel('tables_status:all');
+  tableChannel.on('postgres_changes',
+    { event:'*', schema:'public', table:'tables_status' },
+    payload=>{
+      const row = payload.new || payload.old;
+      if(!row) return;
+      if(!ALL_NUMBERS.includes(row.table_num)) return;
+
+      lastRealtimeAt = Date.now();
+      rows.set(keyOf(row.zone, row.table_num), payload.new || row);
+
+      const cell = gridEl.querySelector(`.table[data-num="${row.table_num}"]`);
+      if(cell){
+        const r = rows.get(keyOf(row.zone, row.table_num));
+        applyStatusClass(cell, r.status || null);
+        setNote(cell, r.note || '');
+        setNumFlag(cell, !!r.num_marked);
+        if(!(r && r.status && r.status_started)) setTimer(cell,'');
+      }
+    }
+  ).subscribe();
+}
+setInterval(async ()=>{
+  if(Date.now() - lastRealtimeAt > 7000){
+    const before = JSON.stringify([...rows.entries()]);
+    await fetchAll();
+    const after = JSON.stringify([...rows.entries()]);
+    if(before !== after) render();
+  }
+}, 6000);
+
+/* ====== HELP: events ====== */
+function showAlert(kind){
+  if(alertTimeout){ clearTimeout(alertTimeout); alertTimeout=null; }
+  alertSub.textContent = kind;
+  alertScreen.classList.add('show');
+  alertTimeout = setTimeout(()=> alertScreen.classList.remove('show'), 6000);
+}
+async function sendHelp(kind){
+  const { error } = await sb.from('help_events').insert({ kind });
+  if(error){ console.error('help insert error', error); }
+}
+function subscribeRealtimeHelp(){
+  if(helpChannel){ sb.removeChannel(helpChannel); }
+  helpChannel = sb.channel('help_events:all');
+  helpChannel.on('postgres_changes',
+    { event:'INSERT', schema:'public', table:'help_events' },
+    payload=>{
+      const row = payload.new;
+      if(row && row.kind){ showAlert(row.kind); }
+    }
+  ).subscribe();
+}
+async function pollHelp(){
+  const since = new Date(Date.now() - 8000).toISOString();
+  const { data, error } = await sb.from('help_events').select('*').gte('created_at', since).order('created_at', { ascending:false }).limit(1);
+  if(!error && data && data[0]) showAlert(data[0].kind);
+}
+setInterval(pollHelp, 5000);
+
+/* HELP UI */
+helpBtn.addEventListener('click', ()=> helpOverlay.classList.add('open'));
+helpOverlay.addEventListener('click', e=>{ if(e.target===helpOverlay) helpOverlay.classList.remove('open'); });
+helpCancel.addEventListener('click', ()=> helpOverlay.classList.remove('open'));
+helpOpts.forEach(btn=>{
+  btn.addEventListener('click', async ()=>{
+    const kind = btn.dataset.help; // "Bar Beneden" | "Bar Boven" | "Run"
+    helpOverlay.classList.remove('open');
+    await sendHelp(kind);
+    showAlert(kind);
+  });
+});
+
+/* ====== Init ====== */
+(async function(){
+  await fetchAll();
+  render();
+  subscribeRealtimeTables();
+  subscribeRealtimeHelp();
+})();
+</script>
 </body>
 </html>
